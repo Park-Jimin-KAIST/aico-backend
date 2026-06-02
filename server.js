@@ -15,9 +15,22 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  "http://127.0.0.1:5175"
+];
 app.use(cors({
-  origin: "http://localhost:5173",
-  methods: ["GET", "POST"],
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -43,18 +56,35 @@ const systemInstructionText = fs.readFileSync(chunkingPromptPath, "utf-8");
 const evaluatePromptPath = path.join(__dirname, "evaluate_prompt.txt");
 const evaluateInstructionText = fs.readFileSync(evaluatePromptPath, "utf-8");
 
-const chunkingModel = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
-  systemInstruction: systemInstructionText,
-});
-
-const evalModel = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
-  systemInstruction: evaluateInstructionText,
-  generationConfig: {
-    responseMimeType: "application/json",
+// Helper for Gemini content generation with model fallbacks
+async function generateContentWithFallback({ parts, systemInstruction, responseMimeType = null }) {
+  // Ordered list of models to try based on testing results
+  const modelsToTry = [
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash"
+  ];
+  
+  let lastError = null;
+  for (const model of modelsToTry) {
+    try {
+      console.log(`[Gemini API] Attempting generateContent with model: ${model}`);
+      const modelInstance = genAI.getGenerativeModel({
+        model: model,
+        systemInstruction: systemInstruction,
+        ...(responseMimeType ? { generationConfig: { responseMimeType } } : {})
+      });
+      const result = await modelInstance.generateContent(parts);
+      console.log(`[Gemini API] Success with model: ${model}`);
+      return result;
+    } catch (err) {
+      console.warn(`[Gemini API] Failed with model ${model}:`, err.message || err);
+      lastError = err;
+    }
   }
-});
+  throw lastError;
+}
 
 // Auth Endpoint
 app.post("/api/auth/google", async (req, res) => {
@@ -106,7 +136,11 @@ app.post("/api/evaluate", async (req, res) => {
 
   try {
     const prompt = `Assignment: ${taskDescription || "Unknown"}\n\nUser Code:\n${code}`;
-    const result = await evalModel.generateContent(prompt);
+    const result = await generateContentWithFallback({
+      parts: [prompt],
+      systemInstruction: evaluateInstructionText,
+      responseMimeType: "application/json"
+    });
     const data = JSON.parse(result.response.text());
     
     // Validate rating
@@ -144,13 +178,17 @@ app.post("/api/generate", async (req, res) => {
       parts.push({ inlineData: { data: file.data, mimeType: file.mimeType } });
     }
 
-    const result = await chunkingModel.generateContent(parts);
+    const result = await generateContentWithFallback({
+      parts: parts,
+      systemInstruction: systemInstructionText
+    });
     const responseText = result.response.text();
     
     const parseTag = (tag, text) => {
       const regex = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "i");
       const match = text.match(regex);
-      return match ? match[1].trim() : "";
+      if (!match) return "";
+      return match[1].trim().replace(/\\n/g, "\n");
     };
 
     const data = {
@@ -252,12 +290,13 @@ app.get("/api/sessions", async (req, res) => {
 
 // 2. Create a new session
 app.post("/api/sessions", async (req, res) => {
-  const { userId, title, taskDescription, assignmentFileName, cardData, userCode, evalFeedback } = req.body;
+  const { userId, title, taskDescription, assignmentFileName, cardData, userCode, evalFeedback, pages } = req.body;
   if (!title) return res.status(400).json({ error: "Missing title" });
   try {
     const session = new Session({
       userId: userId || null,
       title,
+      pages: pages || [],
       taskDescription,
       assignmentFileName,
       cardData,
@@ -275,12 +314,13 @@ app.post("/api/sessions", async (req, res) => {
 // 3. Update an existing session
 app.put("/api/sessions/:id", async (req, res) => {
   const { id } = req.params;
-  const { title, taskDescription, assignmentFileName, cardData, userCode, evalFeedback } = req.body;
+  const { title, taskDescription, assignmentFileName, cardData, userCode, evalFeedback, pages } = req.body;
   try {
     const updated = await Session.findByIdAndUpdate(
       id,
       {
         title,
+        pages,
         taskDescription,
         assignmentFileName,
         cardData,
