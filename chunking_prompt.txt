@@ -53,7 +53,8 @@ We need to find the length (or magnitude) of a vector.
 [/description]
 
 [arguments]
-vec (numpy array)
+vec (numpy array): The vector which length we want to find
+arg2 (...): ...
 [/arguments]
 
 [return]
@@ -67,7 +68,8 @@ Step 3: Pass our vector into that tool and return the final number.
 [/todo]
 
 [tips]
-Hint: Try looking up the `np.linalg.norm()` function!
+**Hint 1**: import numpy as np {\n}
+**Hint 2**: Try looking up the `np.linalg.norm()` function! {\n}
 [/tips]
 
 [code]
