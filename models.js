@@ -15,7 +15,7 @@ const revealSchema = new mongoose.Schema({
 const evaluationSchema = new mongoose.Schema({
   userId: { type: String, ref: 'User', required: true },
   code: String,
-  rating: { type: String, enum: ['BAD', 'OKAY', 'GOOD'], required: true },
+  rating: { type: String, enum: ['UNACCEPTABLE', 'POOR', 'FAIR', 'GOOD', 'EXCELLENT', 'BAD', 'OKAY'], required: true },
   feedback: String,
   createdAt: { type: Date, default: Date.now }
 });
@@ -30,6 +30,8 @@ const sessionPageSchema = new mongoose.Schema({
   cardData: mongoose.Schema.Types.Mixed,
   userCode: String,
   evalFeedback: mongoose.Schema.Types.Mixed,
+  codeRevealed: { type: Boolean, default: false },
+  completedWithoutReveal: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 

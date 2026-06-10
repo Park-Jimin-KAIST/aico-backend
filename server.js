@@ -143,9 +143,14 @@ app.post("/api/evaluate", async (req, res) => {
     });
     const data = JSON.parse(result.response.text());
     
+    // Normalize feedback for the database and frontend
+    if (data.evaluation && data.evaluation.constructive_feedback) {
+      data.feedback = data.evaluation.constructive_feedback;
+    }
+    
     // Validate rating
-    const validRatings = ['BAD', 'OKAY', 'GOOD'];
-    const rating = validRatings.includes(data.rating?.toUpperCase()) ? data.rating.toUpperCase() : 'OKAY';
+    const validRatings = ['UNACCEPTABLE', 'POOR', 'FAIR', 'GOOD', 'EXCELLENT'];
+    const rating = validRatings.includes(data.rating?.toUpperCase()) ? data.rating.toUpperCase() : 'FAIR';
     
     const evaluation = new Evaluation({
       userId,
@@ -218,25 +223,42 @@ app.get("/api/stats", async (req, res) => {
     else if (range === 'Y') dateLimit.setFullYear(dateLimit.getFullYear() - 1);
     else dateLimit.setDate(dateLimit.getDate() - 7);
 
-    // Group reveals
-    const reveals = await Reveal.find({ userId, createdAt: { $gte: dateLimit } });
+    // Find all sessions updated within dateLimit
+    const sessions = await Session.find({ userId, updatedAt: { $gte: dateLimit } });
     
+    let totalCompleted = 0;
+    const completedPages = [];
+
+    sessions.forEach(session => {
+      const pages = session.pages || [];
+      pages.forEach(page => {
+        if (page.completedWithoutReveal) {
+          totalCompleted++;
+          completedPages.push({
+            createdAt: page.createdAt || session.updatedAt || session.createdAt || new Date()
+          });
+        }
+      });
+    });
+
     // Group evaluations for SCORE_RATINGS
     const evaluations = await Evaluation.find({ userId, createdAt: { $gte: dateLimit } });
     
-    const scoreRatings = { red: 0, yellow: 0, green: 0 };
+    const scoreRatings = { unacceptable: 0, poor: 0, fair: 0, good: 0, excellent: 0 };
     evaluations.forEach(ev => {
-      if (ev.rating === 'BAD') scoreRatings.red++;
-      else if (ev.rating === 'OKAY') scoreRatings.yellow++;
-      else if (ev.rating === 'GOOD') scoreRatings.green++;
+      if (ev.rating === 'UNACCEPTABLE') scoreRatings.unacceptable++;
+      else if (ev.rating === 'POOR' || ev.rating === 'BAD') scoreRatings.poor++;
+      else if (ev.rating === 'FAIR' || ev.rating === 'OKAY') scoreRatings.fair++;
+      else if (ev.rating === 'GOOD') scoreRatings.good++;
+      else if (ev.rating === 'EXCELLENT') scoreRatings.excellent++;
     });
 
-    // Formatting reveal history
+    // Formatting completed history
     let history = [];
     if (range === 'W') {
       const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       let counts = [0,0,0,0,0,0,0];
-      reveals.forEach(r => counts[r.createdAt.getDay()]++);
+      completedPages.forEach(p => counts[new Date(p.createdAt).getDay()]++);
       // Rotate array so today is last
       const today = new Date().getDay();
       for (let i = 1; i <= 7; i++) {
@@ -245,8 +267,8 @@ app.get("/api/stats", async (req, res) => {
       }
     } else if (range === 'M') {
       let counts = [0,0,0,0];
-      reveals.forEach(r => {
-        const diffDays = Math.floor((new Date() - r.createdAt) / (1000 * 60 * 60 * 24));
+      completedPages.forEach(p => {
+        const diffDays = Math.floor((new Date() - new Date(p.createdAt)) / (1000 * 60 * 60 * 24));
         const weekIdx = Math.floor(diffDays / 7);
         if(weekIdx < 4) counts[3 - weekIdx]++;
       });
@@ -254,7 +276,7 @@ app.get("/api/stats", async (req, res) => {
     } else if (range === 'Y') {
       const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       let counts = new Array(12).fill(0);
-      reveals.forEach(r => counts[r.createdAt.getMonth()]++);
+      completedPages.forEach(p => counts[new Date(p.createdAt).getMonth()]++);
       const currentMonth = new Date().getMonth();
       for (let i = 1; i <= 12; i++) {
         const m = (currentMonth + i) % 12;
@@ -263,7 +285,8 @@ app.get("/api/stats", async (req, res) => {
     }
 
     res.json({
-      totalReveals: reveals.length,
+      totalReveals: totalCompleted, // Map to totalReveals for compatibility
+      totalCompletedWithoutReveal: totalCompleted,
       scoreRatings,
       history
     });

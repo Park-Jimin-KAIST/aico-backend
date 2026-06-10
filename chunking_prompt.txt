@@ -40,7 +40,7 @@ Provide 1 or 2 brief, simple hints (e.g., a specific library function to look up
 [/tips]
 
 [code]
-The complete, working code solution for this specific step. Only raw code goes here.
+The complete, working code solution for this specific step. You MUST output the entire code, including all previously implemented parts. Do NOT omit any existing code or use placeholders. Only raw code goes here.
 [/code]
 
 # Example Output
@@ -68,8 +68,8 @@ Step 3: Pass our vector into that tool and return the final number.
 [/todo]
 
 [tips]
-**Hint 1**: import numpy as np {\n}
-**Hint 2**: Try looking up the `np.linalg.norm()` function! {\n}
+**Hint 1**: import numpy as np
+**Hint 2**: Try looking up the `np.linalg.norm()` function!
 [/tips]
 
 [code]
